@@ -20,7 +20,7 @@ try:
 except ImportError:
     from umqtt.simple import MQTTException, MQTTClient
 
-app_version = "1.3.0"
+app_version = "1.4.0"
 
 # ==========================================
 # 1. CONFIGURATION
@@ -237,8 +237,8 @@ class NetworkManager:
         self.current_backoff = initial_backoff_secs
 
         self.master_avail_topic = f"homeassistant/sensor/{self.client_id}/availability"
-        self.relay_state_topic = f"homeassistant/switch/{self.client_id}_relay/state"
-        self.relay_cmd_topic = f"homeassistant/switch/{self.client_id}_relay/set"
+        self.relay_state_topic = f"homeassistant/switch/{self.client_id}_fans/state"
+        self.relay_cmd_topic = f"homeassistant/switch/{self.client_id}_fans/set"
         
         # Operational Hysteresis Setpoints (Configurable via MQTT Number Sliders)
         self.fan_on_state_topic = f"homeassistant/number/{self.client_id}_fan_on/state"
@@ -351,10 +351,10 @@ class NetworkManager:
             }
 
             # Register Dual Fan Relay Switch (Configurable via MQTT)
-            switch_config_topic = f"homeassistant/switch/{self.client_id}_relay/config"
+            switch_config_topic = f"homeassistant/switch/{self.client_id}_fans/config"
             switch_payload = {
-                "name": "Enclosure Fans",
-                "unique_id": f"{self.client_id}_relay",
+                "name": "Fans",
+                "unique_id": f"{self.client_id}_fans",
                 "command_topic": self.relay_cmd_topic,
                 "state_topic": self.relay_state_topic,
                 "availability_topic": self.master_avail_topic,

@@ -62,17 +62,13 @@ Follow these step-by-step instructions to configure and bootstrap your Raspberry
 2. Hold down the **BOOTSEL** button on your Pico 2 W and plug it into your computer via USB. It will mount as a mass storage drive named `RPI-RP2`.
 3. Drag and drop the downloaded `.uf2` file onto the `RPI-RP2` drive. The Pico will flash the firmware and reboot automatically.
 
-### Step 2: Install Required Libraries via Thonny
-Open Thonny (or your preferred MicroPython IDE) with your Pico connected:
-1. Go to **Tools > Options > Interpreter** and ensure it is set to **MicroPython (Raspberry Pi Pico)** with the correct serial port selected.
-2. Go to **Tools > Manage packages...**, search for `micropython-umqtt.simple`, and click **Install**. Verify that built-in modules (`onewire`, `ds18x20`) are accessible.
-
-### Step 3: Create the `secrets.py` File
-Create a new file on the Pico root named `secrets.py`. Paste the following template and fill in your network and broker parameters:
+### Step 2: Install Required Libraries via `mip`
+Connect your Pico to Wi-Fi and use MicroPython's built-in package manager (`mip`) in the Thonny REPL terminal to install the MQTT client:
 ```python
-# secrets.py
-wifiSsid = "YOUR_WIFI_SSID"
-wifiPassword = "YOUR_WIFI_PASSWORD"
-mqttBroker = "YOUR_MQTT_BROKER_IP"
-mqttUser = "YOUR_MQTT_USERNAME"
-mqttPassword = "YOUR_MQTT_PASSWORD"
+import network
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+wlan.connect("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD")
+
+import mip
+mip.install("umqtt.simple")
