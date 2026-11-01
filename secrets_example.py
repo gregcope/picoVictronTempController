@@ -1,0 +1,5 @@
+wifiSsid = "YOUR_WIFI_SSID"
+wifiPassword = "YOUR_WIFI_PASSWORD"
+mqttBroker = "YOUR_BROKER_IP"
+mqttUser = "YOUR_MQTT_USER"
+mqttPassword = "YOUR_MQTT_PASSWORD"
