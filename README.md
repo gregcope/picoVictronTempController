@@ -1,6 +1,6 @@
 # Victron Temperature and Fan Controller
 
-MicroPython firmware designed for a Raspberry Pi Pico two W to monitor Victron system temperatures using DS18B20 one-wire temperature probes, control dual 12V cooling fans via two standard non-latching relays, and manage secure Over-The-Air (OTA) updates via MQTT and Home Assistant discovery.
+MicroPython firmware designed for a Raspberry Pi Pico 2 W to monitor Victron system temperatures using DS18B20 one-wire temperature probes, control dual 12V cooling fans via two standard non-latching relays, and manage secure Over-The-Air (OTA) updates via MQTT and Home Assistant discovery.
 
 ## Repository Structure
 
@@ -29,7 +29,7 @@ Based on configurable temperature hysteresis setpoints, it triggers dual relay s
 
 ## Hardware Architecture and Pin Mappings
 
-* **Microcontroller:** Raspberry Pi Pico two W
+* **Microcontroller:** Raspberry Pi Pico 2 W
 * **Sensors:** Four DS18B20 temperature probes (`InverterBottom`, `InverterTop`, `BatteryCables`, `VictronLynx`) sharing a single one-wire bus on **GPIO 15**.
 * **One-Wire Pull-Up:** Incorporates a 4.7kΩ pull-up resistor between the 3.3V rail and the data line on GPIO 15.
 * **Fan Relay Outputs:** Dual standard non-latching relay switches driven via **GPIO 14** (Fan 1) and **GPIO 13** (Fan 2) using straightforward `HIGH`/`LOW` states.
@@ -52,3 +52,27 @@ Based on configurable temperature hysteresis setpoints, it triggers dual relay s
   * Fan OFF Threshold: `homeassistant/number/pico_victron_controller_fan_off/...`
 * **OTA Update Button Topics:**
   * Command: `homeassistant/button/pico_victron_controller_ota/set`
+
+## Initial Install
+
+Follow these step-by-step instructions to configure and bootstrap your Raspberry Pi Pico 2 W from scratch:
+
+### Step 1: Install MicroPython Firmware
+1. Download the official MicroPython UF2 firmware image for the **Raspberry Pi Pico 2 W**.
+2. Hold down the **BOOTSEL** button on your Pico 2 W and plug it into your computer via USB. It will mount as a mass storage drive named `RPI-RP2`.
+3. Drag and drop the downloaded `.uf2` file onto the `RPI-RP2` drive. The Pico will flash the firmware and reboot automatically.
+
+### Step 2: Install Required Libraries via Thonny
+Open Thonny (or your preferred MicroPython IDE) with your Pico connected:
+1. Go to **Tools > Options > Interpreter** and ensure it is set to **MicroPython (Raspberry Pi Pico)** with the correct serial port selected.
+2. Go to **Tools > Manage packages...**, search for `micropython-umqtt.simple`, and click **Install**. Verify that built-in modules (`onewire`, `ds18x20`) are accessible.
+
+### Step 3: Create the `secrets.py` File
+Create a new file on the Pico root named `secrets.py`. Paste the following template and fill in your network and broker parameters:
+```python
+# secrets.py
+wifiSsid = "YOUR_WIFI_SSID"
+wifiPassword = "YOUR_WIFI_PASSWORD"
+mqttBroker = "YOUR_MQTT_BROKER_IP"
+mqttUser = "YOUR_MQTT_USERNAME"
+mqttPassword = "YOUR_MQTT_PASSWORD"
