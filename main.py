@@ -1,6 +1,6 @@
 # main.py
 # MicroPython firmware for picoVictronTempController
-# DS18B20 Temperature Monitoring, Latching Relay Fan Control, MQTT & ugit OTA Updates
+# DS18B20 Temp Monitoring, Dual Relay Fan Control, Immutable Failsafe, MQTT Hysteresis & ugit OTA Updates
 
 import asyncio
 import gc
@@ -20,27 +20,30 @@ try:
 except ImportError:
     from umqtt.simple import MQTTException, MQTTClient
 
-app_version = "1.0.0"
+app_version = "1.3.0"
 
 # ==========================================
 # 1. CONFIGURATION
 # ==========================================
 client_id = "pico_victron_controller"
-sensor_names = ["InverterBottom", "InverterTop", "BatteryCables", "VictronXXX"]
+sensor_names = ["InverterBottom", "InverterTop", "BatteryCables", "VictronLynx"]
 
 # Time and Threshold Variables
 sensor_interval_secs = 10
 heartbeat_interval_secs = 300
 sensor_change_threshold_c = 0.3
 
-# Fan Control Temperature Thresholds (Celsius)
+# --- Operational & Safety Thresholds ---
+# 1. CRITICAL_OVERRIDE_TEMP_C: Immutable local hardware safety floor (NOT changeable via MQTT).
+# 2. FAN_ON_THRESHOLD_C / FAN_OFF_THRESHOLD_C: Operational hysteresis setpoints (Configurable via MQTT).
+CRITICAL_OVERRIDE_TEMP_C = 50.0  
 FAN_ON_THRESHOLD_C = 35.0
 FAN_OFF_THRESHOLD_C = 30.0
 
 # Hardware Pin Assignments
 ONEWIRE_PIN_NUM = 15
-RELAY_SET_PIN_NUM = 14
-RELAY_RESET_PIN_NUM = 13
+RELAY_FAN_1_PIN_NUM = 14
+RELAY_FAN_2_PIN_NUM = 13
 
 # Hardware and Network Timing
 watchdog_timeout_ms = 8000
@@ -95,33 +98,28 @@ for i in range(10, 0, -1):
 
 
 # ==========================================
-# 2. LATCHING RELAY CONTROLLER
+# 2. DUAL FAN RELAY CONTROLLER
 # ==========================================
-class LatchingRelayController:
-    """Controls a dual-coil latching relay for 12V fan management."""
+class DualFanController:
+    """Controls two standard non-latching relay switches for dual 12V fan banks."""
 
-    def __init__(self, set_pin_num: int, reset_pin_num: int) -> None:
-        self.set_pin = machine.Pin(set_pin_num, machine.Pin.OUT, value=0)
-        self.reset_pin = machine.Pin(reset_pin_num, machine.Pin.OUT, value=0)
-        self.current_state = "UNKNOWN"
-
-    def _pulse(self, pin: machine.Pin) -> None:
-        """Send a short electrical pulse to latch or unlatch the relay."""
-        pin.value(1)
-        time.sleep_ms(50)
-        pin.value(0)
-
-    def turn_on(self) -> None:
-        """Activate the relay to turn on the 12V fans."""
-        self._pulse(self.set_pin)
-        self.current_state = "ON"
-        print("Latching Relay: Fans ON")
-
-    def turn_off(self) -> None:
-        """Deactivate the relay to turn off the 12V fans."""
-        self._pulse(self.reset_pin)
+    def __init__(self, pin_fan_1: int, pin_fan_2: int) -> None:
+        self.fan_1_pin = machine.Pin(pin_fan_1, machine.Pin.OUT, value=0)
+        self.fan_2_pin = machine.Pin(pin_fan_2, machine.Pin.OUT, value=0)
         self.current_state = "OFF"
-        print("Latching Relay: Fans OFF")
+
+    def set_fans(self, state: str) -> None:
+        """Set both fans to ON or OFF."""
+        if state.upper() == "ON":
+            self.fan_1_pin.value(1)
+            self.fan_2_pin.value(1)
+            self.current_state = "ON"
+            print("Dual Relays: Fans ON")
+        else:
+            self.fan_1_pin.value(0)
+            self.fan_2_pin.value(0)
+            self.current_state = "OFF"
+            print("Dual Relays: Fans OFF")
 
 
 # ==========================================
@@ -241,6 +239,13 @@ class NetworkManager:
         self.master_avail_topic = f"homeassistant/sensor/{self.client_id}/availability"
         self.relay_state_topic = f"homeassistant/switch/{self.client_id}_relay/state"
         self.relay_cmd_topic = f"homeassistant/switch/{self.client_id}_relay/set"
+        
+        # Operational Hysteresis Setpoints (Configurable via MQTT Number Sliders)
+        self.fan_on_state_topic = f"homeassistant/number/{self.client_id}_fan_on/state"
+        self.fan_on_cmd_topic = f"homeassistant/number/{self.client_id}_fan_on/set"
+        self.fan_off_state_topic = f"homeassistant/number/{self.client_id}_fan_off/state"
+        self.fan_off_cmd_topic = f"homeassistant/number/{self.client_id}_fan_off/set"
+
         self.ota_cmd_topic = f"homeassistant/button/{self.client_id}_ota/set"
 
     async def maintain_connection(self) -> bool:
@@ -345,7 +350,7 @@ class NetworkManager:
                 "serial_number": device_serial,
             }
 
-            # Register Fan Relay Switch
+            # Register Dual Fan Relay Switch (Configurable via MQTT)
             switch_config_topic = f"homeassistant/switch/{self.client_id}_relay/config"
             switch_payload = {
                 "name": "Enclosure Fans",
@@ -356,6 +361,42 @@ class NetworkManager:
                 "device": device_info,
             }
             self.publish(switch_config_topic, switch_payload)
+            time.sleep(0.1)
+
+            # Register Fan ON Threshold Number Entity (Configurable via MQTT Slider)
+            fan_on_config_topic = f"homeassistant/number/{self.client_id}_fan_on/config"
+            fan_on_payload = {
+                "name": "Fan ON Threshold",
+                "unique_id": f"{self.client_id}_fan_on",
+                "command_topic": self.fan_on_cmd_topic,
+                "state_topic": self.fan_on_state_topic,
+                "unit_of_measurement": "°C",
+                "min": 20.0,
+                "max": 60.0,
+                "step": 0.5,
+                "mode": "slider",
+                "availability_topic": self.master_avail_topic,
+                "device": device_info,
+            }
+            self.publish(fan_on_config_topic, fan_on_payload)
+            time.sleep(0.1)
+
+            # Register Fan OFF Threshold Number Entity (Configurable via MQTT Slider)
+            fan_off_config_topic = f"homeassistant/number/{self.client_id}_fan_off/config"
+            fan_off_payload = {
+                "name": "Fan OFF Threshold",
+                "unique_id": f"{self.client_id}_fan_off",
+                "command_topic": self.fan_off_cmd_topic,
+                "state_topic": self.fan_off_state_topic,
+                "unit_of_measurement": "°C",
+                "min": 15.0,
+                "max": 55.0,
+                "step": 0.5,
+                "mode": "slider",
+                "availability_topic": self.master_avail_topic,
+                "device": device_info,
+            }
+            self.publish(fan_off_config_topic, fan_off_payload)
             time.sleep(0.1)
 
             # Register OTA Update Button
@@ -377,10 +418,10 @@ class NetworkManager:
                 payload = {
                     "name": f"{s['sensor_name']} Temp",
                     "unique_id": f"{self.client_id}_{s['sensor_id']}_T",
-                    "state_topic": f"homeassistant/sensor/{self.client_id}_{s['sensor_id']}/state",
+                    "state_topic": f"homeassistant/sensor/{s['sensor_id']}/state",
                     "availability": [
                         {"topic": self.master_avail_topic},
-                        {"topic": f"homeassistant/sensor/{self.client_id}_{s['sensor_id']}/availability"}
+                        {"topic": f"homeassistant/sensor/{s['sensor_id']}/availability"}
                     ],
                     "availability_mode": "all",
                     "unit_of_measurement": "°C",
@@ -432,28 +473,56 @@ class NetworkManager:
 # 5. MAIN ASYNC LOOP
 # ==========================================
 async def main() -> None:
-    global system_status, last_published_status, force_sensor_publish, watchdog
+    global system_status, last_published_status, force_sensor_publish, watchdog, FAN_ON_THRESHOLD_C, FAN_OFF_THRESHOLD_C
 
     watchdog = machine.WDT(timeout=watchdog_timeout_ms)
 
     sensors_manager = SensorManager(data_pin_num=ONEWIRE_PIN_NUM, sensor_list=sensor_names)
-    relay = LatchingRelayController(set_pin_num=RELAY_SET_PIN_NUM, reset_pin_num=RELAY_RESET_PIN_NUM)
+    fans = DualFanController(pin_fan_1=RELAY_FAN_1_PIN_NUM, pin_fan_2=RELAY_FAN_2_PIN_NUM)
     network_controller = NetworkManager(
         client_id, secrets.mqttBroker, secrets.mqttUser, secrets.mqttPassword
     )
 
+    # Track manual override state from Home Assistant
+    manual_override_active = False
+
     # MQTT message callback handler
     def sub_cb(topic: bytes, msg: bytes) -> None:
+        nonlocal manual_override_active
+        global FAN_ON_THRESHOLD_C, FAN_OFF_THRESHOLD_C
         topic_str = topic.decode("utf-8")
         msg_str = msg.decode("utf-8")
 
+        # Configurable via MQTT: Manual Fan Switch State
         if topic_str == network_controller.relay_cmd_topic:
             if msg_str.upper() == "ON":
-                relay.turn_on()
+                manual_override_active = True
+                fans.set_fans("ON")
                 network_controller.publish(network_controller.relay_state_topic, "ON", retain=True)
             elif msg_str.upper() == "OFF":
-                relay.turn_off()
+                manual_override_active = False
+                fans.set_fans("OFF")
                 network_controller.publish(network_controller.relay_state_topic, "OFF", retain=True)
+
+        # Configurable via MQTT: Fan ON Threshold Slider
+        elif topic_str == network_controller.fan_on_cmd_topic:
+            try:
+                new_temp = float(msg_str)
+                FAN_ON_THRESHOLD_C = new_temp
+                print(f"Fan ON threshold updated via MQTT to: {FAN_ON_THRESHOLD_C}°C")
+                network_controller.publish(network_controller.fan_on_state_topic, str(FAN_ON_THRESHOLD_C), retain=True)
+            except ValueError:
+                print(f"Invalid Fan ON temperature received: {msg_str}")
+
+        # Configurable via MQTT: Fan OFF Threshold Slider
+        elif topic_str == network_controller.fan_off_cmd_topic:
+            try:
+                new_temp = float(msg_str)
+                FAN_OFF_THRESHOLD_C = new_temp
+                print(f"Fan OFF threshold updated via MQTT to: {FAN_OFF_THRESHOLD_C}°C")
+                network_controller.publish(network_controller.fan_off_state_topic, str(FAN_OFF_THRESHOLD_C), retain=True)
+            except ValueError:
+                print(f"Invalid Fan OFF temperature received: {msg_str}")
 
         elif topic_str == network_controller.ota_cmd_topic:
             if msg_str.upper() == "PRESS":
@@ -556,11 +625,15 @@ async def main() -> None:
         if network_controller.client and not discovery_sent:
             network_controller.client.set_callback(sub_cb)
             network_controller.client.subscribe(network_controller.relay_cmd_topic.encode("utf-8"))
+            network_controller.client.subscribe(network_controller.fan_on_cmd_topic.encode("utf-8"))
+            network_controller.client.subscribe(network_controller.fan_off_cmd_topic.encode("utf-8"))
             network_controller.client.subscribe(network_controller.ota_cmd_topic.encode("utf-8"))
 
             if network_controller.send_discovery(sensors_manager.sensors):
                 discovery_sent = True
-                network_controller.publish(network_controller.relay_state_topic, relay.current_state, retain=True)
+                network_controller.publish(network_controller.relay_state_topic, fans.current_state, retain=True)
+                network_controller.publish(network_controller.fan_on_state_topic, str(FAN_ON_THRESHOLD_C), retain=True)
+                network_controller.publish(network_controller.fan_off_state_topic, str(FAN_OFF_THRESHOLD_C), retain=True)
                 last_heartbeat_time_secs = now_secs - heartbeat_interval_secs
                 last_read_time_secs = now_secs - sensor_interval_secs
 
@@ -589,7 +662,7 @@ async def main() -> None:
                 force_sensor_publish = True
                 last_heartbeat_time_secs = now_secs
 
-        # 3. Poll Sensors & Apply Fan Hysteresis
+        # 3. Poll Sensors & Apply Fallback / Hysteresis Logic
         if now_secs - last_read_time_secs >= sensor_interval_secs:
             bus_active = sensors_manager.start_conversion()
             if not bus_active:
@@ -611,14 +684,24 @@ async def main() -> None:
                 for item in ready_payloads:
                     network_controller.publish(item['topic'], item['payload'])
 
-                # Automatic Fan Hysteresis Control based on highest sensor reading
+                # --- Fan Control Logic (Safety Fallback vs Hysteresis vs Manual) ---
                 if max_temp_c > -900.0:
-                    if relay.current_state != "ON" and max_temp_c >= FAN_ON_THRESHOLD_C:
-                        relay.turn_on()
-                        network_controller.publish(network_controller.relay_state_topic, "ON", retain=True)
-                    elif relay.current_state != "OFF" and max_temp_c <= FAN_OFF_THRESHOLD_C:
-                        relay.turn_off()
-                        network_controller.publish(network_controller.relay_state_topic, "OFF", retain=True)
+                    if max_temp_c >= CRITICAL_OVERRIDE_TEMP_C:
+                        # Safety Critical Override: Force fans ON locally regardless of network or manual states
+                        if fans.current_state != "ON":
+                            fans.set_fans("ON")
+                            if network_controller.client:
+                                network_controller.publish(network_controller.relay_state_topic, "ON", retain=True)
+                    elif not manual_override_active:
+                        # Normal Automatic Hysteresis (Configurable via Home Assistant sliders)
+                        if fans.current_state != "ON" and max_temp_c >= FAN_ON_THRESHOLD_C:
+                            fans.set_fans("ON")
+                            if network_controller.client:
+                                network_controller.publish(network_controller.relay_state_topic, "ON", retain=True)
+                        elif fans.current_state != "OFF" and max_temp_c <= FAN_OFF_THRESHOLD_C:
+                            fans.set_fans("OFF")
+                            if network_controller.client:
+                                network_controller.publish(network_controller.relay_state_topic, "OFF", retain=True)
 
                 last_read_time_secs = time.time()
                 gc.collect()

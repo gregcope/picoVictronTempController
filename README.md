@@ -1,6 +1,6 @@
 # Victron Temperature and Fan Controller
 
-MicroPython firmware designed for a Raspberry Pi Pico two W to monitor Victron system temperatures using DS18B20 one-wire temperature probes, control dual 12V fans via a latching relay, and manage secure Over-The-Air (OTA) updates via MQTT and Home Assistant discovery.
+MicroPython firmware designed for a Raspberry Pi Pico two W to monitor Victron system temperatures using DS18B20 one-wire temperature probes, control dual 12V cooling fans via two standard non-latching relays, and manage secure Over-The-Air (OTA) updates via MQTT and Home Assistant discovery.
 
 ## Repository Structure
 
@@ -14,9 +14,9 @@ MicroPython firmware designed for a Raspberry Pi Pico two W to monitor Victron s
 
 ## Overview
 
-This project provides thermal monitoring and automated fan cooling for your Victron equipment enclosure. It polls multiple DS18B20 temperature probes on a single one-wire bus, applies median filtering and delta thresholds, and publishes telemetry live to Home Assistant. Based on temperature thresholds, it triggers a latching relay to drive two or three low-speed 12V enclosure fans. 
+This project provides thermal monitoring and automated dual-fan cooling for your Victron equipment enclosure. It polls four DS18B20 temperature probes (`InverterBottom`, `InverterTop`, `BatteryCables`, and `VictronLynx`) on a single one-wire bus, applies median filtering and delta thresholds, and publishes telemetry live to Home Assistant. 
 
-To ensure long-term reliability for remote hardware, it features an Over-The-Air (OTA) update architecture using the `ugit` library, complete with validation handshakes and automatic rollback protection.
+Based on configurable temperature hysteresis setpoints, it triggers dual relay switches to manage airflow. To ensure absolute equipment protection, it features an immutable hardcoded local safety failsafe independent of network connection state.
 
 ## Architectural Decisions and Strict Constraints
 
@@ -25,14 +25,14 @@ To ensure long-term reliability for remote hardware, it features an Over-The-Air
 * **OTA Validation and Rollback:** Firmware updates are executed seamlessly via MQTT. An `ota_pending.flag` is created before downloading new code. The `boot.py` script acts as a gatekeeper; if the new `main.py` fails to initialise and clear the flag, `boot.py` deletes the corrupted file, restores `main_backup.py`, and resets the hardware.
 * **Resilient Network Management:** Employs an exponential backoff retry loop coupled with an eight-second hardware watchdog timer. If Wi-Fi or MQTT communication fails repeatedly, the system backs off before triggering a clean hardware reset.
 * **Sensor Noise Reduction:** Implements a three-sample median filter combined with a 0.3°C delta threshold to eliminate raw sensor jitter and prevent excessive MQTT database chatter.
-* **Fault Isolation:** If a single DS18B20 probe drops from the one-wire bus, the logic flags only that specific sensor as offline while keeping the broader system status healthy.
+* **Immutable Hardware Failsafe:** The critical safety threshold (`CRITICAL_OVERRIDE_TEMP_C` at 50°C) is hardcoded locally on the device to guarantee thermal protection even if Wi-Fi drops, MQTT stalls, or Home Assistant servers restart.
 
 ## Hardware Architecture and Pin Mappings
 
 * **Microcontroller:** Raspberry Pi Pico two W
-* **Sensors:** DS18B20 temperature probes sharing a single one-wire bus on **GPIO 15**.
+* **Sensors:** Four DS18B20 temperature probes (`InverterBottom`, `InverterTop`, `BatteryCables`, `VictronLynx`) sharing a single one-wire bus on **GPIO 15**.
 * **One-Wire Pull-Up:** Incorporates a 4.7kΩ pull-up resistor between the 3.3V rail and the data line on GPIO 15.
-* **Latching Relay Output:** Dual-coil latching relay driven via GPIO pins (Set on **GPIO 14**, Reset on **GPIO 13**) to toggle 12V power to the cooling fans with minimal idle power draw.
+* **Fan Relay Outputs:** Dual standard non-latching relay switches driven via **GPIO 14** (Fan 1) and **GPIO 13** (Fan 2) using straightforward `HIGH`/`LOW` states.
 
 ## Agent-Executable Runtime and Timing Specifications
 
@@ -47,5 +47,8 @@ To ensure long-term reliability for remote hardware, it features an Over-The-Air
 * **Fan Relay Switch Topics:**
   * Command: `homeassistant/switch/pico_victron_controller_relay/set`
   * State: `homeassistant/switch/pico_victron_controller_relay/state`
+* **Operational Hysteresis Sliders (Configurable via MQTT):**
+  * Fan ON Threshold: `homeassistant/number/pico_victron_controller_fan_on/...`
+  * Fan OFF Threshold: `homeassistant/number/pico_victron_controller_fan_off/...`
 * **OTA Update Button Topics:**
   * Command: `homeassistant/button/pico_victron_controller_ota/set`
