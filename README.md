@@ -25,16 +25,12 @@ Based on configurable temperature hysteresis setpoints, it triggers dual relay s
 ## Architectural Decisions and Strict Constraints
 
 * **No Local Logging (Strict Constraint):** Local file logging is prohibited during standard execution to prevent flash memory wear. All diagnostics and telemetry are routed live via MQTT to Home Assistant.
-
 * **Asynchronous Execution (Strict Constraint):** The firmware operates entirely within an asynchronous `asyncio` event loop. Blocking synchronous I/O operations are avoided except during an active OTA download sequence.
-
 * **OTA Validation and Rollback:** Firmware updates are executed seamlessly via MQTT. An `ota_pending.flag` is created before downloading new code. The `boot.py` script acts as a gatekeeper; if the new `main.py` fails to initialise and clear the flag, `boot.py` deletes the corrupted file, restores `main_backup.py`, and resets the hardware.
-
 * **Resilient Network Management:** Employs an exponential backoff retry loop coupled with an eight-second hardware watchdog timer. If Wi-Fi or MQTT communication fails repeatedly, the system backs off before triggering a clean hardware reset.
-
 * **Sensor Noise Reduction:** Implements a three-sample median filter combined with a 0.3°C delta threshold to eliminate raw sensor jitter and prevent excessive MQTT database chatter.
-
 * **Immutable Hardware Failsafe:** The critical safety threshold (`CRITICAL_OVERRIDE_TEMP_C` at 50°C) is hardcoded locally on the device to guarantee thermal protection even if Wi-Fi drops, MQTT stalls, or Home Assistant servers restart.
+* **LED:** Blink the LED on, on activity only.
 
 ## Hardware Architecture and Pin Mappings
 
