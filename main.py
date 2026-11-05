@@ -16,20 +16,11 @@ import ds18x20
 from ubinascii import hexlify
 
 try:
-    import logging
-except ImportError:
-    import ulogging as logging
-
-try:
     from simple import MQTTClient
 except ImportError:
     from umqtt.simple import MQTTException, MQTTClient
 
-app_version = "1.6.1"
-
-# System Logging Configuration
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("victron_controller")
+app_version = "1.6.4"
 
 # ==========================================
 # 1. CONFIGURATION
@@ -43,8 +34,6 @@ heartbeat_interval_secs = 300
 sensor_change_threshold_c = 0.3
 
 # --- Operational & Safety Thresholds ---
-# 1. CRITICAL_OVERRIDE_TEMP_C: Immutable local hardware safety floor (NOT changeable via MQTT).
-# 2. FAN_ON_THRESHOLD_C / FAN_OFF_THRESHOLD_C: Operational hysteresis setpoints (Configurable via MQTT).
 CRITICAL_OVERRIDE_TEMP_C = 50.0  
 FAN_ON_THRESHOLD_C = 35.0
 FAN_OFF_THRESHOLD_C = 30.0
@@ -142,12 +131,12 @@ class DualFanController:
             self.fan_1_pin.value(1)
             self.fan_2_pin.value(1)
             self.current_state = "ON"
-            logger.info("Dual Relays: Fans ON")
+            print("Dual Relays: Fans ON")
         else:
             self.fan_1_pin.value(0)
             self.fan_2_pin.value(0)
             self.current_state = "OFF"
-            logger.info("Dual Relays: Fans OFF")
+            print("Dual Relays: Fans OFF")
 
 
 # ==========================================
@@ -270,7 +259,6 @@ class NetworkManager:
         self.relay_state_topic = f"homeassistant/switch/{self.client_id}_fans/state"
         self.relay_cmd_topic = f"homeassistant/switch/{self.client_id}_fans/set"
         
-        # Operational Hysteresis Setpoints
         self.fan_on_state_topic = f"homeassistant/number/{self.client_id}_fan_on/state"
         self.fan_on_cmd_topic = f"homeassistant/number/{self.client_id}_fan_on/set"
         self.fan_off_state_topic = f"homeassistant/number/{self.client_id}_fan_off/state"
@@ -314,13 +302,11 @@ class NetworkManager:
 
                 self.client.connect()
 
-                # Enforce non-blocking socket timeout on reads and writes[cite: 3, 4]
                 if hasattr(self.client, "sock") and self.client.sock is not None:
                     self.client.sock.settimeout(5.0)
 
                 self.publish(self.master_avail_topic, "online", retain=True)
 
-                # --- OTA Validation Handshake ---
                 try:
                     os.remove("/ota_pending.flag")
                 except OSError:
@@ -332,7 +318,7 @@ class NetworkManager:
                 system_status = "nominal - mainloop"
                 return True
             except (OSError, MQTTException) as err:
-                logger.error("MQTT connection failed: %s", err)
+                print(f"MQTT connection failed: {err}")
                 self.client = None
 
         self.failed_attempts += 1
@@ -348,14 +334,14 @@ class NetworkManager:
 
         if self.failed_attempts >= max_failed_attempts:
             system_status = "error - max network retries, rebooting"
-            logger.error(system_status)
+            print(system_status)
             time.sleep(1)
             machine.reset()
 
         return False
 
     def publish(self, topic: str, payload_data, retain: bool = True) -> bool:
-        """Publish data payload to specified MQTT topic[cite: 3, 4]."""
+        """Publish data payload to specified MQTT topic."""
         if self.client is None:
             return False
         try:
@@ -368,17 +354,17 @@ class NetworkManager:
             self.client.publish(t_bytes, p_bytes, retain=retain)
             return True
         except (OSError, MQTTException) as err:
-            logger.error("MQTT publish error to %s: %s", topic, err)
+            print(f"MQTT publish error to {topic}: {err}")
             self.client = None
             return False
 
     def check_messages(self) -> None:
-        """Check for incoming MQTT messages[cite: 3, 4]."""
+        """Check for incoming MQTT messages."""
         if self.client:
             try:
                 self.client.check_msg()
             except (OSError, MQTTException) as err:
-                logger.error("MQTT check_msg error: %s", err)
+                print(f"MQTT check_msg error: {err}")
                 self.client = None
 
     async def send_discovery(self, sensors_list: list) -> bool:
@@ -393,7 +379,6 @@ class NetworkManager:
                 "serial_number": device_serial,
             }
 
-            # Register Dual Fan Relay Switch
             switch_config_topic = f"homeassistant/switch/{self.client_id}_fans/config"
             switch_payload = {
                 "name": "Fans",
@@ -406,7 +391,6 @@ class NetworkManager:
             self.publish(switch_config_topic, switch_payload)
             await asyncio.sleep(0.1)
 
-            # Register Fan ON Threshold Number Entity
             fan_on_config_topic = f"homeassistant/number/{self.client_id}_fan_on/config"
             fan_on_payload = {
                 "name": "Fan ON Threshold",
@@ -424,7 +408,6 @@ class NetworkManager:
             self.publish(fan_on_config_topic, fan_on_payload)
             await asyncio.sleep(0.1)
 
-            # Register Fan OFF Threshold Number Entity
             fan_off_config_topic = f"homeassistant/number/{self.client_id}_fan_off/config"
             fan_off_payload = {
                 "name": "Fan OFF Threshold",
@@ -442,7 +425,6 @@ class NetworkManager:
             self.publish(fan_off_config_topic, fan_off_payload)
             await asyncio.sleep(0.1)
 
-            # Register OTA Update Button
             ota_config_topic = f"homeassistant/button/{self.client_id}_ota/config"
             ota_payload = {
                 "name": "Update Firmware",
@@ -455,7 +437,6 @@ class NetworkManager:
             self.publish(ota_config_topic, ota_payload)
             await asyncio.sleep(0.1)
 
-            # Register DS18B20 Temperature Sensors
             for s in sensors_list:
                 topic = f"homeassistant/sensor/{self.client_id}_{s['sensor_id']}_T/config"
                 payload = {
@@ -476,7 +457,6 @@ class NetworkManager:
                 self.publish(topic, payload)
                 await asyncio.sleep(0.1)
 
-            # Register Diagnostic Sensors
             sys_sensors = [
                 ("pico_temp", "Internal CPU Temp", "temperature", "°C", "measurement"),
                 ("rssi", "Signal Strength", "signal_strength", "dBm", "measurement"),
@@ -510,7 +490,7 @@ class NetworkManager:
 
             return True
         except (OSError, ValueError) as err:
-            logger.error("Discovery error: %s", err)
+            print(f"Discovery error: {err}")
             return False
 
 
@@ -528,17 +508,14 @@ async def main() -> None:
         client_id, secrets.mqttBroker, secrets.mqttUser, secrets.mqttPassword
     )
 
-    # Track manual override state from Home Assistant
     manual_override_active = False
 
-    # MQTT message callback handler
     def sub_cb(topic: bytes, msg: bytes) -> None:
         nonlocal manual_override_active
         global FAN_ON_THRESHOLD_C, FAN_OFF_THRESHOLD_C, system_status
         topic_str = topic.decode("utf-8")
         msg_str = msg.decode("utf-8")
 
-        # Configurable via MQTT: Manual Fan Switch State
         if topic_str == network_controller.relay_cmd_topic:
             if msg_str.upper() == "ON":
                 manual_override_active = True
@@ -549,25 +526,23 @@ async def main() -> None:
                 fans.set_fans("OFF")
                 network_controller.publish(network_controller.relay_state_topic, "OFF", retain=True)
 
-        # Configurable via MQTT: Fan ON Threshold Slider
         elif topic_str == network_controller.fan_on_cmd_topic:
             try:
                 new_temp = float(msg_str)
                 FAN_ON_THRESHOLD_C = new_temp
-                logger.info("Fan ON threshold updated via MQTT to: %s°C", FAN_ON_THRESHOLD_C)
+                print(f"Fan ON threshold updated via MQTT to: {FAN_ON_THRESHOLD_C}°C")
                 network_controller.publish(network_controller.fan_on_state_topic, str(FAN_ON_THRESHOLD_C), retain=True)
             except ValueError:
-                logger.error("Invalid Fan ON temperature received: %s", msg_str)
+                print(f"Invalid Fan ON temperature received: {msg_str}")
 
-        # Configurable via MQTT: Fan OFF Threshold Slider
         elif topic_str == network_controller.fan_off_cmd_topic:
             try:
                 new_temp = float(msg_str)
                 FAN_OFF_THRESHOLD_C = new_temp
-                logger.info("Fan OFF threshold updated via MQTT to: %s°C", FAN_OFF_THRESHOLD_C)
+                print(f"Fan OFF threshold updated via MQTT to: {FAN_OFF_THRESHOLD_C}°C")
                 network_controller.publish(network_controller.fan_off_state_topic, str(FAN_OFF_THRESHOLD_C), retain=True)
             except ValueError:
-                logger.error("Invalid Fan OFF temperature received: %s", msg_str)
+                print(f"Invalid Fan OFF temperature received: {msg_str}")
 
         elif topic_str == network_controller.ota_cmd_topic:
             if msg_str.upper() == "PRESS":
@@ -673,17 +648,15 @@ async def main() -> None:
             watchdog.feed()
         now_secs = time.time()
 
-        # Software Deadlock Guard: Force reboot ONLY if connected to MQTT but loop processing stalled > 120s[cite: 3, 4]
         if network_controller.client is not None and (now_secs - last_loop_success_secs > 120):
             system_status = "error - main loop deadlock, forcing reset"
-            logger.error(system_status)
+            print(system_status)
             time.sleep(1)
             machine.reset()
 
-        # 1. Maintain Network Connection
         if not await network_controller.maintain_connection():
             discovery_sent = False
-            last_loop_success_secs = now_secs  # Reset timer during network backoff[cite: 3, 4]
+            last_loop_success_secs = now_secs
             await asyncio.sleep(2)
             continue
 
@@ -704,7 +677,6 @@ async def main() -> None:
 
         network_controller.check_messages()
 
-        # 2. Dynamic System Telemetry Broadcast
         force_heartbeat = (now_secs - last_heartbeat_time_secs >= heartbeat_interval_secs)
         status_changed = system_status != last_published_status
 
@@ -723,7 +695,6 @@ async def main() -> None:
                 "status": system_status,
             }
             if network_controller.publish(f"homeassistant/sensor/{client_id}_sys/state", sys_data):
-                # Safely delete fatal crash log only after successful MQTT transmission[cite: 3, 4]
                 if last_crash_log:
                     try:
                         os.remove("/fatal_crash.log")
@@ -736,7 +707,6 @@ async def main() -> None:
                 force_sensor_publish = True
                 last_heartbeat_time_secs = now_secs
 
-        # 3. Poll Sensors & Apply Fallback / Hysteresis Logic
         if now_secs - last_read_time_secs >= sensor_interval_secs:
             system_status = "nominal - sensor conversion"
             bus_active = sensors_manager.start_conversion()
@@ -755,16 +725,13 @@ async def main() -> None:
                 for item in ready_payloads:
                     network_controller.publish(item['topic'], item['payload'])
 
-                # --- Fan Control Logic (Safety Fallback vs Hysteresis vs Manual) ---
                 if max_temp_c > -900.0:
                     if max_temp_c >= CRITICAL_OVERRIDE_TEMP_C:
-                        # Safety Critical Override: Force fans ON locally regardless of network or manual states
                         if fans.current_state != "ON":
                             fans.set_fans("ON")
                             if network_controller.client:
                                 network_controller.publish(network_controller.relay_state_topic, "ON", retain=True)
                     elif not manual_override_active:
-                        # Normal Automatic Hysteresis (Configurable via Home Assistant sliders)
                         if fans.current_state != "ON" and max_temp_c >= FAN_ON_THRESHOLD_C:
                             fans.set_fans("ON")
                             if network_controller.client:
@@ -774,10 +741,9 @@ async def main() -> None:
                             if network_controller.client:
                                 network_controller.publish(network_controller.relay_state_topic, "OFF", retain=True)
                 else:
-                    # COMPLETE SENSOR FAILURE BLIND FAILSAFE: Force fans ON
                     if not manual_override_active and fans.current_state != "ON":
                         fans.set_fans("ON")
-                        logger.warning("Failsafe activated: All sensors offline, forcing fans ON")
+                        print("Failsafe activated: All sensors offline, forcing fans ON")
                         if network_controller.client:
                             network_controller.publish(network_controller.relay_state_topic, "ON", retain=True)
 
@@ -785,7 +751,6 @@ async def main() -> None:
                 system_status = "nominal - mainloop"
                 gc.collect()
 
-        # Mark loop cycle success timestamp
         last_loop_success_secs = now_secs
 
         await asyncio.sleep(0.1)
@@ -797,7 +762,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     except Exception as exc:
-        # Catch fatal unhandled top-level crashes to flash before rebooting[cite: 3, 4]
         try:
             with open("/fatal_crash.log", "w") as crash_file:
                 sys.print_exception(exc, crash_file)
