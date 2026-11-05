@@ -137,29 +137,48 @@ mqttPassword = "mqtt_password"
 
 2. Run the following setup commands in the Thonny REPL to link the device to your repository and generate the local configuration:
 
-   import ugit
-   ugit.create_config(
-   ssid="YOUR_WIFI_SSID",
-   password="YOUR_WIFI_PASSWORD",
-   user="YOUR_GITHUB_USERNAME",
-   repository="picoVictronTempController",
-   ignore=\["/README.md", "/secrets.py", "/secrets_example.py", "/config.json", "/main_backup.py", "/LICENSE", "/.gitignore"\]
-   )
+```
+import ugit
+ugit.create_config(
+    ssid="YOUR_WIFI_SSID",
+    password="YOUR_WIFI_PASSWORD",
+    user="YOUR_GITHUB_USERNAME",
+    repository="picoVictronTempController",
+    ignore=["/README.md", "/secrets.py", "/secrets_example.py", "/config.json", "/main_backup.py", "/LICENSE", "/.gitignore"]
+)
 
-3. Execute the connection and initial sync command in the REPL to pull down your latest codebase (`boot.py` and `main.py`):
+```
 
-   import ugit
-   import network
+3. Execute the connection and initial sync command in the REPL to pull down your latest codebase (`boot.py` and `main.py`). The `time.sleep` loop prevents socket errors by ensuring the Wi-Fi is fully connected before fetching:
 
-   wlan = network.WLAN(network.STA_IF)
-   wlan.active(True)
-   wlan.connect("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD")
-   ugit.pull_all(isconnected=True)
+```
+import ugit
+import network
+import time
+
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+wlan.connect("YOUR_WIFI_SSID", "YOUR_WIFI_PASSWORD")
+
+while not wlan.isconnected():
+    print("Waiting for Wi-Fi to connect...")
+    time.sleep(1)
+
+print("Wi-Fi Connected!")
+ugit.pull_all(isconnected=True)
+
+```
 
 ### Step 5: Final Verification and Boot
 
 1. Press `Ctrl+D` in the Thonny REPL to perform a soft reset.
 
-2. Confirm that the system initializes cleanly without any `ImportError` or missing module exceptions.
+2. Confirm that the system initializes cleanly without any `ImportError` or missing module exceptions. You should see output similar to the following in the REPL console:
+
+```
+MPY: soft reboot
+BOOT: boot.py v1.6.4 starting
+BOOT: Environment initialised
+```
 
 Once bootstrapped, all future code changes pushed to your repository can be deployed directly by pressing the "Update Firmware" button within Home Assistant.

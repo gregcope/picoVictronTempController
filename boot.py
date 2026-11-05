@@ -6,7 +6,7 @@ import machine
 import time
 import asyncio
 
-boot_version = "1.6.4"
+boot_version = "1.6.5"
 print(f"BOOT: boot.py v{boot_version} starting")
 
 
