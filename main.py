@@ -17,7 +17,7 @@ try:
 except ImportError:
     from umqtt.simple import MQTTException, MQTTClient
 
-app_version = "1.6.7"
+app_version = "1.6.8"
 
 # ==========================================
 # 1. CONFIGURATION & HARDWARE SETUP
@@ -732,11 +732,13 @@ async def main() -> None:
                         last_crash_log = ""
                     except OSError:
                         pass
+                
                 last_published_status = system_status
+                
                 if system_status.startswith("recovered"):
                     system_status = "nominal - mainloop"
+                    await asyncio.sleep(2)  # Give HA time to process the logbook entry
 
-            last_published_status = system_status
             if force_heartbeat:
                 force_sensor_publish = True
                 last_heartbeat_time_secs = now_secs
