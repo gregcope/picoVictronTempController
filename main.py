@@ -17,7 +17,7 @@ try:
 except ImportError:
     from umqtt.simple import MQTTException, MQTTClient
 
-app_version = "1.6.8"
+app_version = "1.6.9"
 
 # ==========================================
 # 1. CONFIGURATION & HARDWARE SETUP
@@ -297,7 +297,7 @@ class NetworkManager:
 
     async def maintain_connection(self) -> bool:
         """Maintain robust network and MQTT connectivity using exponential backoff."""
-        global system_status
+        global system_status, last_reset_reason
         wlan = network.WLAN(network.STA_IF)
         wlan.active(True)
 
@@ -361,6 +361,8 @@ class NetworkManager:
                 self.current_backoff = initial_backoff_secs
                 
                 if self.last_disconnect_reason:
+                    # Overload the global last_reset_reason with the disconnect cause
+                    last_reset_reason = self.last_disconnect_reason
                     system_status = f"recovered - {self.last_disconnect_reason}"
                     self.last_disconnect_reason = ""
                 else:
