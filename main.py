@@ -1,3 +1,8 @@
+"""MicroPython firmware for the Victron inverter monitor and relay controller.
+
+Running on a Raspberry Pi Pico 2 W with DS18B20 sensors and fan relays.
+"""
+
 import asyncio
 import json
 import os
@@ -17,7 +22,7 @@ try:
 except ImportError:
     from umqtt.simple import MQTTException, MQTTClient
 
-app_version = "1.6.9"
+app_version = "1.6.10"
 
 # ==========================================
 # 1. CONFIGURATION & HARDWARE SETUP
